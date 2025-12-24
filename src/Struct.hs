@@ -126,15 +126,13 @@ appendContext :: Int -> Maybe String -> Context -> Context
 appendContext offset mName (Context path old) =
   Context (mName : path) (offset + old)
 
-destructLvM :: (Monad m, Splittable content) => (Context -> StructType -> content -> Maybe (m ())) -> Context -> StructType -> content -> m ()
+destructLvM :: (Monad m, Splittable content) => (m () -> Context -> StructType -> content -> m ()) -> Context -> StructType -> content -> m ()
 destructLvM func context struct content =
-  let dump d = fromMaybe (pure ()) (func context (Mono (VPadding (splittableSize d))) d)
-  in case func context struct content of
-      Just action -> action 
-      Nothing ->
+  let dump d = func (pure ()) context (Mono (VPadding (splittableSize d))) d
+      next =
         case struct of
-          Inline st   -> destructLvM func context st content
-          Mono vt     -> pure ()
+          Inline st -> destructLvM func context st content
+          Mono   vt -> pure ()
           Array mn st ->
             let go d n i o =
                   case n of
@@ -152,38 +150,24 @@ destructLvM func context struct content =
                   case sinfos of
                     [] -> pure ()
                     ((sname, sinfo):sinfos'') ->
-                      case structSize sinfo of
-                        Nothing -> destructLvM func (appendContext o sname context) sinfo d
-                        Just size ->
-                          let here chunk = destructLvM func (appendContext o sname context) sinfo chunk
-                          in case partialSplit size d of
+                      let here chunk = destructLvM func (appendContext o sname context) sinfo chunk
+                      in case structSize sinfo of
+                            Nothing -> here d
+                            Just size ->
+                              case partialSplit size d of
                                 Just (chunk, rest) -> here chunk >> go rest sinfos'' (o + size)
                                 Nothing -> dump d
             in go content sts 0
+  in func next context struct content
 
-destructLv :: (Monoid result, Splittable content) => (Context -> StructType -> content -> Maybe result) -> Context -> StructType -> content -> result
+destructLv :: (Monoid result, Splittable content) => (result -> Context -> StructType -> content -> result) -> Context -> StructType -> content -> result
 destructLv func context struct content =
-  execWriter $ destructLvM (\l s c -> tell <$> func l s c) context struct content
+  execWriter $
+    destructLvM (\next ctx st cnt -> tell (func (execWriter next) ctx st cnt)) context struct content
 
 isInline :: StructType -> Bool
 isInline (Inline _) = True
 isInline _         = False
-
-fireOnInline :: (Context -> StructType -> content -> result) -> Context -> StructType -> content -> Maybe result
-fireOnInline func context struct content = 
-  case struct of
-    Array _ _ -> Nothing
-    Struct _ -> Nothing
-    otherwise -> Just (func context struct content)
-
-fireOnValue :: (Context -> ValueType -> content -> result) -> Context -> StructType -> content -> Maybe result
-fireOnValue func context struct content = 
-  case struct of
-    Mono vt -> Just (func context vt content)
-    otherwise -> Nothing
-
-fireOnMono :: (Context -> StructType -> content -> result) -> Context -> StructType -> content -> Maybe result
-fireOnMono func = fireOnValue (\l v c -> func l (Mono v) c)
 
 -- testing
 
@@ -200,6 +184,24 @@ instance Splittable SliceRange where
         then Nothing
         else Just (SliceRange start (start + size), SliceRange (start + size) end)
 
+fireOnInline :: (Context -> StructType -> content -> result) -> (result -> Context -> StructType -> content -> result)
+fireOnInline f next context st content =
+  case st of
+    Mono _ -> f context st content
+    Inline innerSt -> f context innerSt content
+    _              -> next
+
+fireOnValue :: (Context -> ValueType -> content -> result) -> (result -> Context -> StructType -> content -> result)
+fireOnValue f next context st content =
+  case st of
+    Mono vt -> f context vt content
+    _       -> next
+
+fireOnMono :: (Context -> StructType -> content -> result) -> (result -> Context -> StructType -> content -> result)
+fireOnMono f next context st content =
+  case st of
+    Mono _ -> f context st content
+    _      -> next
 -- >>> splitRange (Just 10) (SliceRange 10 40)
 
 testStruct :: StructType

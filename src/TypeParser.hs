@@ -30,6 +30,8 @@ parseValueType =
   <|> (string "i64" >> pure VInt64)
   <|> (string "p" >> decimal >>= \n -> pure (VPadding n))
   <|> (string "pad(" >> decimal >>= \n -> string ")" >> pure (VPadding n))
+  <|> (string "str" >> decimal >>= \n -> pure (VString n))
+  <|> (string "s" >> decimal >>= \n -> pure (VString n))
   <|> fail "Unrecognized value type"
 
 parseMono :: Parser StructType

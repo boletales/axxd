@@ -98,19 +98,28 @@ prettyStructValue opt context vt content =
               VPadding _   -> prettyStructPadding opt content
               VString _    -> prettyStructString opt content
       index = case contextPath context of
-                (Just name : _) -> BSB.string7 (name ++ ": ")
+                (Just name : _) -> BSB.string7 (name ++ ":")
                 _               -> mempty
-  in index <> body <> BSB.string7 " ,"
+  in index <> body <> BSB.string7 ", "
+
+
 
 prettyStructLine :: Options -> Context -> StructType -> BS.ByteString -> BSB.Builder
 prettyStructLine opt context st content =
   let size = structSize st
+      helper next c s d =
+        case s of
+          Mono vt   -> prettyStructValue opt c vt d
+          Array _ _ -> BSB.char8 '[' <> next <> BSB.char8 ']'
+          Struct _  -> BSB.char8 '{' <> next <> BSB.char8 '}'
+          Inline _  -> next
+
   in     prettyOffsetNumber opt (contextOffset context)
       <> prettyHex opt content size
       <> BSB.string7 "  |"
       <> prettyAscii opt content size
       <> BSB.string7 "|  "
-      <> destructLv (fireOnValue (prettyStructValue opt)) context st content
+      <> destructLv helper context st content
       <> BSB.char8 '\n'
 
 prettyStruct :: Handle -> Options -> StructType -> BSL.ByteString -> IO ()
