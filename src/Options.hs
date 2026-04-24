@@ -19,5 +19,6 @@ data Options = Options {
     optEndianness :: Endianness
   , optIntFormat  :: IntFormat
   , optSeeStructHelp :: Bool
+  , optUseStdin :: Bool
   }
 

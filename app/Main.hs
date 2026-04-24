@@ -77,10 +77,13 @@ argsParser = Args
            <> help "Display integers in decimal format" )
         <*> flag False True
             ( long "help-struct"
-            <> help "Show help for struct type syntax" ))
+          <> help "Show help for struct type syntax" )
+        <*> flag False True
+          ( long "stdin"
+          <> help "Read input from stdin instead of INPUT_FILE" ))
   <*> optional (strArgument
         ( metavar "INPUT_FILE"
-       <> help "Input file to dump" ))
+         <> help "Input file to dump (omit when using --stdin)" ))
   <*> optional (strArgument
         ( metavar "OUTPUT_FILE"
        <> help "Output file to write dump to (defaults to stdout)" ))
@@ -95,9 +98,16 @@ main = do
   if optSeeStructHelp (argOptions args)
     then putStrLn helpStrStructType
     else do
-      case argInputFile args of
-        Nothing -> putStrLn "No input file specified. Use --help for usage information."
-        Just inputFilePath -> do
+      case (optUseStdin (argOptions args), argInputFile args) of
+        (True, Just _) ->
+          putStrLn "Cannot use --stdin and INPUT_FILE at the same time. Use --help for usage information."
+        (True, Nothing) -> do
+          content <- BSL.getContents
+          let typeStr = fromMaybe "u32[4]l[*]" (argTypeStr args)
+          dumpaxxd args typeStr content
+        (False, Nothing) ->
+          putStrLn "No input file specified. Use --stdin or see --help for usage information."
+        (False, Just inputFilePath) -> do
           content <- BSL.readFile inputFilePath
           let typeStr = fromMaybe "u32[4]l[*]" (argTypeStr args)
           dumpaxxd args typeStr content

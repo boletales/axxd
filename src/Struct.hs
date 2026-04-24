@@ -14,12 +14,10 @@ module Struct
   ) where
 
 import qualified Data.List as L
-import Control.Applicative (liftA2)
-import Data.Monoid (Monoid, mempty)
 import Control.Monad.Writer.CPS
-import Data.Maybe (maybe, fromMaybe)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
+import Control.Monad (when)
 
 
 data ValueType =
@@ -93,6 +91,8 @@ structSize struct =
 class Splittable a where
   splittableSize :: a -> Int
 
+  hasContent :: a -> Bool
+
   {- |
   partialSplit size content
   if size is larger than content size, return Nothing
@@ -109,10 +109,12 @@ makePartialSplit sizeFunc splitFunc size content =
 instance Splittable BS.ByteString where
   splittableSize = BS.length
   partialSplit = makePartialSplit BS.length BS.splitAt
+  hasContent bs = not (BS.null bs)
 
 instance Splittable BSL.ByteString where
   splittableSize = fromIntegral . BSL.length
   partialSplit = makePartialSplit (fromIntegral . BSL.length) BSL.splitAt
+  hasContent bs = not (BSL.null bs)
 
 data Context = Context {
     contextPath :: [Maybe String]
@@ -132,7 +134,7 @@ destructLvM func context struct content =
       next =
         case struct of
           Inline st -> destructLvM func context st content
-          Mono   vt -> pure ()
+          Mono   _  -> pure ()
           Array mn st ->
             let go d n i o =
                   case n of
@@ -142,9 +144,9 @@ destructLvM func context struct content =
                               Nothing -> here d
                               Just size ->
                                 case partialSplit size d of
-                                  Just (chunk, rest) -> here chunk >> go rest ((\x -> x - 1) <$> n) (i + 1) (o + size)
+                                  Just (chunk, rest) -> here chunk >> when (hasContent rest) (go rest ((\x -> x - 1) <$> n) (i + 1) (o + size))
                                   Nothing -> dump d
-            in go content mn 0 0
+            in go content mn (0 :: Int) (0 :: Int)
           Struct sts ->
             let go d sinfos o =
                   case sinfos of
@@ -155,7 +157,7 @@ destructLvM func context struct content =
                             Nothing -> here d
                             Just size ->
                               case partialSplit size d of
-                                Just (chunk, rest) -> here chunk >> go rest sinfos'' (o + size)
+                                Just (chunk, rest) -> here chunk >> when (hasContent rest) (go rest sinfos'' (o + size))
                                 Nothing -> dump d
             in go content sts 0
   in func next context struct content
@@ -178,11 +180,12 @@ data SliceRange = SliceRange {
 
 instance Splittable SliceRange where
   splittableSize (SliceRange start end) = end - start
-  partialSplit size sr@(SliceRange start end) =
+  partialSplit size (SliceRange start end) =
     let totalSize = end - start
     in if size > totalSize
         then Nothing
         else Just (SliceRange start (start + size), SliceRange (start + size) end)
+  hasContent (SliceRange start end) = start < end
 
 fireOnInline :: (Context -> StructType -> content -> result) -> (result -> Context -> StructType -> content -> result)
 fireOnInline f next context st content =
