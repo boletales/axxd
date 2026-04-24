@@ -19,7 +19,7 @@ import Printer
 data Args = Args
   { argTypeStr :: Maybe String
   , argOptions :: Options
-  , argInputFile :: FilePath
+  , argInputFile :: Maybe FilePath
   , argOutFile :: Maybe FilePath
   }
 
@@ -35,13 +35,37 @@ dumpaxxd args typeStr content = do
 
 -- axxd [-s STRUCT_TYPE] [-blhd] INPUT_FILE [OUTPUT_FILE]
 
+helpStrStructType :: String
+helpStrStructType = 
+  "Basic types:\n"
+    ++ "  u8, ..., u64, i8, ..., i64, char\n"
+    ++ "    - Basic value types\n\n"
+    ++ "  str100 or s100\n"
+    ++ "    - A string of 100 bytes\n\n"
+    ++ "  pad100 or p100\n"
+    ++ "    - 100 bytes of padding. Printed as hex\n\n"
+    ++ "  <type>[100]\n"
+    ++ "    - An array of 100 elements of the given type\n\n"
+    ++ "  <type>[*]\n"
+    ++ "    - An infinite array of the given type (prints until end of file)\n\n"
+    ++ "  {<type>, <type>, field_name: <type>}\n"
+    ++ "    - A struct with unnamed / named fields\n\n"
+    ++ "  <type>l or <type>L\n"
+    ++ "    - Print the type inline\n\n"
+    ++ "Examples:\n"
+    ++ "  u32[4]l[*]\n"
+    ++ "    - Prints four u32 values on each line, until end of file\n\n"
+    ++ "  {header: u32, payload: {name: str16, age: u8}l[*]}\n"
+    ++ "    - Prints header, then payload\n\n"
+
 argsParser :: Parser Args
 argsParser = Args
   <$> optional (strOption
         ( long "struct-type"
        <> short 's'
        <> metavar "TYPE"
-       <> help "Struct type description string" ))
+     <> help ("Struct settings. default: u32[4]l[*]")
+     ))
   <*> (Options
         <$> flag LittleEndian BigEndian
             ( long "big-endian"
@@ -50,10 +74,13 @@ argsParser = Args
         <*> flag IntHex IntDec
             ( long "int-dec"
            <> short 'd'
-           <> help "Display integers in decimal format" ))
-  <*> strArgument
+           <> help "Display integers in decimal format" )
+        <*> flag False True
+            ( long "help-struct"
+            <> help "Show help for struct type syntax" ))
+  <*> optional (strArgument
         ( metavar "INPUT_FILE"
-       <> help "Input file to dump" )
+       <> help "Input file to dump" ))
   <*> optional (strArgument
         ( metavar "OUTPUT_FILE"
        <> help "Output file to write dump to (defaults to stdout)" ))
@@ -62,8 +89,15 @@ main :: IO ()
 main = do
   args <- execParser $ info (argsParser <**> helper)
     ( fullDesc
-   <> progDesc "Dump binary files in a structured hex+ASCII format"
+   <> progDesc "Dump binary files in a structured hex+ASCII format. See --help-struct for struct type syntax help."
    <> header "axxd - structured hexdump tool" )
-  content <- BSL.readFile (argInputFile args)
-  let typeStr = fromMaybe "u32[4]l[*]" (argTypeStr args)
-  dumpaxxd args typeStr content
+  
+  if optSeeStructHelp (argOptions args)
+    then putStrLn helpStrStructType
+    else do
+      case argInputFile args of
+        Nothing -> putStrLn "No input file specified. Use --help for usage information."
+        Just inputFilePath -> do
+          content <- BSL.readFile inputFilePath
+          let typeStr = fromMaybe "u32[4]l[*]" (argTypeStr args)
+          dumpaxxd args typeStr content
