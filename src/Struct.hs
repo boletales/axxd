@@ -206,6 +206,8 @@ fireOnMono f next context st content =
     Mono _ -> f context st content
     _      -> next
 -- >>> splitRange (Just 10) (SliceRange 10 40)
+-- Variable not in scope:
+--   splitRange :: Maybe a0_axnT[tau:1] -> SliceRange -> t_axnQ[sk:1]
 
 testStruct :: StructType
 testStruct = Struct [
